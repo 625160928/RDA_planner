@@ -1,10 +1,14 @@
+import copy
 import time
 import json
 import rospy
-from visualization_msgs.msg import MarkerArray
 import matplotlib.pyplot as plt
 import math
 import numpy as np
+from visualization_msgs.msg import MarkerArray
+from tf2_msgs.msg import TFMessage
+
+tf_dict=dict()
 
 def euler_from_quaternion(quaternion):
     x, y, z, w = quaternion[0], quaternion[1], quaternion[2], quaternion[3]
@@ -27,6 +31,7 @@ def euler_from_quaternion(quaternion):
 def markers_static_callback(data):
     print(data)
 
+
 def ex_msg_to_rec(x,y,l,w,rad):
     # print('----------------------')
     # print(x,y,l,w,rad)
@@ -39,6 +44,7 @@ def ex_msg_to_rec(x,y,l,w,rad):
     # print(npose)
     # pass
     return npose
+
 
 def check_if_point_in_rec(point,rec_list):
     return isInterArea(point,AreaPoint=rec_list)
@@ -60,8 +66,6 @@ def isInterArea(testPoint,AreaPoint):#testPoint为待测点[x,y]
         return True
     else:
         return False
-
-
 
 
 def gen_grid_map(road_list,reso=0.1):
@@ -106,7 +110,7 @@ def gen_grid_map(road_list,reso=0.1):
         # if count<=714:
         #     continue
         # print('------------------------------------')
-        num=int(max(sy,sx)*2/reso)*2
+        num=int(max(sy,sx)*2/reso)*2+1
 
         print(count,round(100*count/total_len,2),'%')
         if num*num<lx*ly:
@@ -124,6 +128,7 @@ def gen_grid_map(road_list,reso=0.1):
             np_offset_list=np.array(offset_list)
             tp=np.array([[np.cos(rad),-np.sin(rad)],[np.sin(rad),np.cos(rad)]])
             # print(np_offset_list.shape)
+            # print()
             npose = np.array([[px,py]]*(num*num)) + np.dot(np_offset_list, tp.T)
             # print(npose)
             for x,y in npose:
@@ -185,10 +190,8 @@ def show_road(road_list):
 
     plt.show()
 
-def main():
-    st_time = time.time()
-    rospy.init_node('py_RDA_map_creater', anonymous=True)
-    # rospy.Subscriber('/carla/markers/static', MarkerArray, markers_static_callback)
+
+def save_ros_map(reso=0.1):
 
     msg=rospy.wait_for_message('/carla/markers/static', MarkerArray, timeout=None)
 
@@ -203,7 +206,7 @@ def main():
             road_list.append(data)
 
     # show_road(road_list)
-    grid_map,config=gen_grid_map(road_list,reso=0.1)
+    grid_map,config=gen_grid_map(road_list,reso=reso)
     # print(grid_map)
 
     # 将Python对象转换为JSON字符串
@@ -220,10 +223,96 @@ def main():
     plt.show()
 
 
+def get_center_map(grid_map_msg, car_position, x_range, y_range):
+    reso=grid_map_msg['reso']
+    lx,ly=grid_map_msg['shape']
+    grid_map=np.array(grid_map_msg['map'])
+    stx,sty=grid_map_msg['zero_position']
+    car_pose_x_index=int((car_position[0]-stx)/reso)
+    car_pose_y_index=int((car_position[1]-sty)/reso)
+    x_half_index=int(x_range/reso/2)
+    y_half_index=int(y_range/reso/2)
+    x_index_range=[max(0,car_pose_x_index-x_half_index),min(lx,car_pose_x_index+x_half_index)]
+    y_index_range=[max(0,car_pose_y_index-y_half_index),min(ly,car_pose_y_index+y_half_index)]
+
+    # print(grid_map.shape,lx,ly)
+    # print(lx,ly)
+    # print(car_position,car_pose_x_index,car_pose_y_index)
+    # print(x_index_range,y_index_range)
+    new_map=grid_map[x_index_range[0]:x_index_range[1],y_index_range[0]:y_index_range[1]]
+    # print(len(new_map),len(new_map[0]))
+
+    return np.array(new_map),reso,car_position[0]-x_range/2,car_position[1]-y_range/2
+
+
+def grid_map_to_object_map(grid_map,reso,stx,sty):
+    obj_list=[]
+    n=len(grid_map)
+    m=len(grid_map[0])
+    print(reso,stx,sty,n,m)
+    cmap=copy.deepcopy(grid_map)
+
+
+
+    return obj_list
+
+
+def read_map(map_path):
+    data=read_json_file(map_path)
+    # print(data)
+    reso=data['reso']
+    lx,ly=data['shape']
+    grid_map=data['map']
+    stx,sty=data['zero_position']
+
+
+
+    # plt.imshow(grid_map, cmap='Greys', origin='lower')
+    # plt.show()
+
+
+    car_position=[100,100]
+    view_range=[100,200]
+    car_center_map,center_map_reso,center_map_stx,center_map_sty=get_center_map(
+        data,car_position,view_range[0],view_range[1])
+    # print(car_center_map.shape)
+    # plt.imshow(car_center_map, cmap='Greys', origin='lower')
+    # plt.show()
+
+    object_map=grid_map_to_object_map(car_center_map,center_map_reso,center_map_stx,center_map_sty)
+    print('object_map',object_map)
+
+
+def tf_callback(tf_msg):
+    for m in tf_msg.transforms:
+        frames=[m.header.frame_id,m.child_frame_id]
+
+
+        # print(frames,m)
+
+# 读取JSON文件
+def read_json_file(file_path):
+    with open(file_path, 'r') as file:
+        data = json.load(file)
+        return data
+
+
+def main():
+    st_time = time.time()
+    map_name='town04_r1'
+
+    read_map('./map/'+map_name+'.json')
+
+    # save_ros_map(reso=1)
+
     ed_time=time.time()
     print('use time ',ed_time - st_time)
 
 if __name__ == '__main__':
+    rospy.init_node('py_RDA_map_creater', anonymous=True)
 
+    # rospy.Subscriber('/tf', TFMessage,tf_callback)
     main()
+
+
 
