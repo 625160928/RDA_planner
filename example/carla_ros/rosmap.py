@@ -7,6 +7,8 @@ import math
 import numpy as np
 from visualization_msgs.msg import MarkerArray
 from tf2_msgs.msg import TFMessage
+from map_process import *
+
 
 tf_dict=dict()
 
@@ -236,25 +238,117 @@ def get_center_map(grid_map_msg, car_position, x_range, y_range):
     y_index_range=[max(0,car_pose_y_index-y_half_index),min(ly,car_pose_y_index+y_half_index)]
 
     # print(grid_map.shape,lx,ly)
-    # print(lx,ly)
+    # # print(lx,ly)
+    # print(stx,sty,reso)
     # print(car_position,car_pose_x_index,car_pose_y_index)
     # print(x_index_range,y_index_range)
-    new_map=grid_map[x_index_range[0]:x_index_range[1],y_index_range[0]:y_index_range[1]]
+    # new_map=grid_map[x_index_range[0]:x_index_range[1],y_index_range[0]:y_index_range[1]]
+    new_map=grid_map[y_index_range[0]:y_index_range[1],x_index_range[0]:x_index_range[1]]
     # print(len(new_map),len(new_map[0]))
 
     return np.array(new_map),reso,car_position[0]-x_range/2,car_position[1]-y_range/2
 
 
+def save_yaml_map(center_map,center_map_size,start_position,goal_position,view_range):
+
+    total_dict=dict()
+
+    world_dict=dict()
+
+    # world_dict['height'] =view_range[0]
+    # world_dict['width'] =view_range[1]
+
+    world_dict['height'] =view_range[1]
+    world_dict['width'] =view_range[0]
+
+    world_dict['step_time'] =0.1
+    world_dict['sample_time'] =0.1
+    world_dict['offset'] =[start_position[0]-view_range[0]/2,start_position[1]-view_range[1]/2]
+    world_dict['collision_mode'] ="stop"  # "stop', 'unobstructed', 'reactive'
+    world_dict['control_mode'] ="auto"
+    total_dict['world']=world_dict
+
+
+    robot_dict=dict()
+    robot_dict['kinematics'] ={'name': 'acker'}
+    robot_dict['shape'] ={'name': 'rectangle', 'length': 4.6, 'width': 1.6,
+                          'wheelbase': 3}
+    robot_dict['state'] = [start_position[0],start_position[1],start_position[2], 0]
+    robot_dict['goal'] =goal_position
+    robot_dict['vel_min'] =[-8, -1]
+    robot_dict['vel_max'] =[8, 1]
+    robot_dict['goal_threshold'] =0.3
+    plot_dict=dict()
+    plot_dict['show_trail']=True
+    plot_dict['show_goal']=True
+    robot_dict['plot'] =plot_dict
+    total_dict['robot']=robot_dict
+
+
+    obs_dict=dict()
+    obs_dict['number']=len(center_map)
+    obs_dict['distribution'] ={'name': 'manual'}
+    obs_dict['shape'] =[]
+    obs_dict['state'] =[]
+    for x,y,sx,sy in center_map:
+        obs_dict['shape'].append({'name': 'rectangle','length':sx,'width':sy})
+        obs_dict['state'].append([x,y,0])
+    total_dict['obstacle']=[obs_dict]
+
+
+
+    with open('./map/writeYamlData.yaml', 'w', encoding='utf-8') as f:
+        yaml.dump(data=total_dict, stream=f, allow_unicode=True)
+
+    return
+
+
 def grid_map_to_object_map(grid_map,reso,stx,sty):
     obj_list=[]
+    center_list=[]
     n=len(grid_map)
     m=len(grid_map[0])
-    print(reso,stx,sty,n,m)
+    # print(reso,stx,sty,n,m)
     cmap=copy.deepcopy(grid_map)
+    for i in range(n):
+        for j in range(m):
+            if cmap[i][j]==0:
+                continue
+            # print('-------------------')
+            # print(i,j)
+            top,button=i,i
+            left,right=j,j
+            for k in range(j+1,m):
+                if cmap[i][k]!=0:
+                    right=k
+                else:
+                    break
+            # print( left,right,top,button)
+            # print(cmap[top,left:right+1])
+            for ii in range(top+1,n):
+                pd=True
+                for jj in range(left,right+1):
+                    if cmap[ii][jj]==0:
+                        pd=False
+                        break
+                if pd==True:
+                    button=ii
+                else:
+                    break
+            for ii in range(left,right+1):
+                for jj in range(top,button+1):
+                    cmap[jj][ii]=0
+            obj_list.append([left*reso+stx,right*reso+stx,top*reso+sty,button*reso+sty])
+            # obj_list.append([left*reso+stx,right*reso+stx,top*reso+sty,button*reso+sty])
+            # center_list.append([left+right/2,top,button])
+            cen_point=[stx+(left+right)/2*reso,sty+(top+button)/2*reso]
+            scale_len=[(right-left)*reso,(button-top)*reso]
+            center_list.append(cen_point+scale_len)
 
 
 
-    return obj_list
+
+    return obj_list,center_list
 
 
 def read_map(map_path):
@@ -267,21 +361,46 @@ def read_map(map_path):
 
 
 
+
+
+    # car_position=[100,11,math.pi/2]
+    # view_range=[100,200]
+    # car_goal_position=[23,75,math.pi]
+    car_position=[-100,-300,math.pi/2]
+    view_range=[100,200]
+    car_goal_position=[-100,-220,math.pi/2]
+
+
+
+    # plt.subplot(1,2,1)
     # plt.imshow(grid_map, cmap='Greys', origin='lower')
+    # plt.scatter(car_position[0]-stx,car_position[1]-sty)
+    # px,py=car_position[0]-stx,car_position[1]-sty
+    # plt.plot([px-view_range[0]/2,px-view_range[0]/2,px+view_range[0]/2,px+view_range[0]/2,px-view_range[0]/2],
+    #          [py-view_range[1]/2,py+view_range[1]/2,py+view_range[1]/2,py-view_range[1]/2,py-view_range[1]/2],color='blue')
+
+
     # plt.show()
 
-
-    car_position=[100,100]
-    view_range=[100,200]
     car_center_map,center_map_reso,center_map_stx,center_map_sty=get_center_map(
         data,car_position,view_range[0],view_range[1])
     # print(car_center_map.shape)
+    # plt.subplot(1,2,2)
     # plt.imshow(car_center_map, cmap='Greys', origin='lower')
     # plt.show()
+    print('center_map_reso,center_map_stx,center_map_sty',center_map_reso,center_map_stx,center_map_sty)
+    object_map,center_map=grid_map_to_object_map(car_center_map,center_map_reso,center_map_stx,center_map_sty)
 
-    object_map=grid_map_to_object_map(car_center_map,center_map_reso,center_map_stx,center_map_sty)
-    print('object_map',object_map)
+    save_yaml_map(center_map,[center_map_reso*len(car_center_map),center_map_reso*len(car_center_map[0])],car_position,car_goal_position,view_range)
 
+    # print('object_map',object_map)
+    # plt.clf()
+    # plt.subplot(1,2,2)
+    # plt.imshow(grid_map, cmap='Greys', origin='lower')
+    # for l,r,t,b in object_map:
+    #     plt.plot([l-stx,r-stx,r-stx,l-stx,l-stx],
+    #              [b-sty,b-sty,t-sty,t-sty,b-sty])
+    # plt.show()
 
 def tf_callback(tf_msg):
     for m in tf_msg.transforms:
