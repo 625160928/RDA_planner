@@ -29,9 +29,20 @@ def euler_from_quaternion(quaternion):
 
     return roll_x, pitch_y, roll_z
 
+markers_pose=dict()
 
-def markers_static_callback(data):
-    print(data)
+def markers_callback(datas):
+    print('---------------------------------')
+    # print(datas)
+    for data in datas.markers:
+        # print(data)
+        frame_id=data.header.frame_id
+        ego_id=data.id
+        pose=data.pose
+        scale=data.scale
+        print(type(ego_id),frame_id,ego_id,pose,scale)
+        markers_pose[ego_id]=[frame_id,pose,scale]
+
 
 
 def ex_msg_to_rec(x,y,l,w,rad):
@@ -162,6 +173,7 @@ def gen_grid_map(road_list,reso=0.1):
     config_dict['zero_position']=[stx,sty]
     config_dict['reso']=reso
     config_dict['shape']=[lx,ly]
+    grid_map=grid_map.T
     config_dict['map']=grid_map.tolist()
 
 
@@ -197,7 +209,7 @@ def save_ros_map(reso=0.1):
 
     msg=rospy.wait_for_message('/carla/markers/static', MarkerArray, timeout=None)
 
-    map_name='town01'
+    map_name='town04_r1y'
 
     save_dir='./map/'
     # print(data)
@@ -210,6 +222,7 @@ def save_ros_map(reso=0.1):
     # show_road(road_list)
     grid_map,config=gen_grid_map(road_list,reso=reso)
     # print(grid_map)
+    # grid_map
 
     # 将Python对象转换为JSON字符串
     json_data = json.dumps(config)
@@ -246,10 +259,10 @@ def get_center_map(grid_map_msg, car_position, x_range, y_range):
     new_map=grid_map[y_index_range[0]:y_index_range[1],x_index_range[0]:x_index_range[1]]
     # print(len(new_map),len(new_map[0]))
 
-    return np.array(new_map),reso,car_position[0]-x_range/2,car_position[1]-y_range/2
+    return np.array(new_map),reso,max(car_position[0]-x_range/2,stx),max(car_position[1]-y_range/2,sty)
 
 
-def save_yaml_map(center_map,center_map_size,start_position,goal_position,view_range):
+def save_yaml_map(center_map,center_map_size,start_position,goal_position,view_range,yaml_save_path=''):
 
     total_dict=dict()
 
@@ -264,7 +277,7 @@ def save_yaml_map(center_map,center_map_size,start_position,goal_position,view_r
     world_dict['step_time'] =0.1
     world_dict['sample_time'] =0.1
     world_dict['offset'] =[start_position[0]-view_range[0]/2,start_position[1]-view_range[1]/2]
-    world_dict['collision_mode'] ="stop"  # "stop', 'unobstructed', 'reactive'
+    world_dict['collision_mode'] ='unobstructed'  # 'stop', 'unobstructed', 'reactive'
     world_dict['control_mode'] ="auto"
     total_dict['world']=world_dict
 
@@ -295,12 +308,13 @@ def save_yaml_map(center_map,center_map_size,start_position,goal_position,view_r
         obs_dict['state'].append([x,y,0])
     total_dict['obstacle']=[obs_dict]
 
+    if yaml_save_path=='':
+        yaml_save_path='./map/writeYamlData.yaml'
 
-
-    with open('./map/writeYamlData.yaml', 'w', encoding='utf-8') as f:
+    with open(yaml_save_path, 'w', encoding='utf-8') as f:
         yaml.dump(data=total_dict, stream=f, allow_unicode=True)
 
-    return
+    return yaml_save_path
 
 
 def grid_map_to_object_map(grid_map,reso,stx,sty):
@@ -402,6 +416,84 @@ def read_map(map_path):
     #              [b-sty,b-sty,t-sty,t-sty,b-sty])
     # plt.show()
 
+
+def create_obj_map_yaml(map_json_file,car_position,car_goal,view_range,yaml_save_path=''):
+    data=read_json_file(map_json_file)
+
+    #region draw base all map
+
+    # reso=data['reso']
+    # lx,ly=data['shape']
+    # grid_map=data['map']
+    # stx,sty=data['zero_position']
+    # # print(stx,sty)
+    # plt.clf()
+    # plt.subplot(1,2,1)
+    # plt.imshow(grid_map, cmap='Greys', origin='lower')
+    # px,py=(car_position[0]-stx)/reso,(car_position[1]-sty)/reso
+    #
+    # # px,py=py,px
+    #
+    # plt.scatter(px,py,color='blue')
+    # plt.scatter(py,px,color='blue')
+
+    # px,py=(-stx)/reso,(-sty)/reso
+    # plt.scatter(px,py,color='green')
+
+
+    # tmp_pose=[0,0]
+    # plt.scatter((tmp_pose[0]-stx)/reso,(tmp_pose[1]-sty)/reso,color='red')
+
+    # #y line
+    # for i in range(ly):
+    #     if i>ly/2:
+    #         plt.scatter(i,-sty,color='black')
+    #     else:
+    #         plt.scatter(i,-sty)
+    # #x line
+    # for i in range(lx):
+    #     if i>lx/2:
+    #         plt.scatter(-stx,i,color='red')
+    #     else:
+    #         plt.scatter(-stx,i)
+
+
+    # tmp_pose=[428,865]
+    # plt.scatter(tmp_pose[0],tmp_pose[1],color='red')
+    # print('tmp_change',tmp_pose[0]*reso+stx,tmp_pose[1]*reso+sty)
+    #
+    #
+    # plt.plot([px-view_range[0]/2,px-view_range[0]/2,px+view_range[0]/2,px+view_range[0]/2,px-view_range[0]/2],
+    #          [py-view_range[1]/2,py+view_range[1]/2,py+view_range[1]/2,py-view_range[1]/2,py-view_range[1]/2],color='blue')
+
+
+    # plt.show()
+    #endregion
+
+    #get object map
+    car_center_map,center_map_reso,center_map_stx,center_map_sty=get_center_map(
+        data,car_position,view_range[0],view_range[1])
+
+    object_map,center_map=grid_map_to_object_map(car_center_map,center_map_reso,center_map_stx,center_map_sty)
+
+
+    #region draw object map
+    # plt.subplot(1,2,2)
+    # plt.imshow(grid_map, cmap='Greys', origin='lower')
+    # for l,r,t,b in object_map:
+    #     plt.plot([l-stx,r-stx,r-stx,l-stx,l-stx],
+    #              [b-sty,b-sty,t-sty,t-sty,b-sty])
+    # plt.show()
+    #endregion
+
+
+
+    save_path=save_yaml_map(center_map,[center_map_reso*len(car_center_map),center_map_reso*len(car_center_map[0])],
+                            car_position,car_goal,view_range,yaml_save_path=yaml_save_path)
+
+
+    return save_path
+
 def tf_callback(tf_msg):
     for m in tf_msg.transforms:
         frames=[m.header.frame_id,m.child_frame_id]
@@ -416,21 +508,26 @@ def read_json_file(file_path):
         return data
 
 
+
+
+
 def main():
     st_time = time.time()
     map_name='town04_r1'
+    # read_map('./map/'+map_name+'.json')
 
-    read_map('./map/'+map_name+'.json')
-
-    # save_ros_map(reso=1)
+    save_ros_map(reso=1)
 
     ed_time=time.time()
     print('use time ',ed_time - st_time)
 
+
+
 if __name__ == '__main__':
     rospy.init_node('py_RDA_map_creater', anonymous=True)
 
-    # rospy.Subscriber('/tf', TFMessage,tf_callback)
+    # rospy.Subscriber('/carla/markers', MarkerArray,markers_callback)
+    # rospy.spin()
     main()
 
 
